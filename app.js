@@ -18,6 +18,8 @@ const ui = {
   stage: document.querySelector("#stage"),
 };
 
+const DEFAULT_STAGE_YAW = Math.PI / 4;
+
 const state = {
   mode: "preview",
   placed: false,
@@ -28,7 +30,7 @@ const state = {
   hitTestSource: null,
   hitTestRequested: false,
   targetQrData: null,
-  userYaw: 0,
+  userYaw: DEFAULT_STAGE_YAW,
 };
 
 let tapMotion = null;
@@ -251,11 +253,48 @@ function chooseRiggedStationTool(riggedCharacter) {
   if (riggedCharacter.tools[name]) riggedCharacter.tools[name].visible = true;
 }
 
+function createRouteGuide(waypoints) {
+  const group = new THREE.Group();
+  group.name = "cooking-route-guide";
+  const routeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x45bff2,
+    emissive: 0x12658d,
+    emissiveIntensity: 0.65,
+    roughness: 0.52,
+  });
+  const pointMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffc832,
+    emissive: 0x8f5600,
+    emissiveIntensity: 0.7,
+    roughness: 0.45,
+  });
+  const routeY = 0.76;
+
+  waypoints.forEach((point, index) => {
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.43, 0.43, 0.09, 24), pointMaterial);
+    pad.position.set(point.x, routeY, point.z);
+    pad.receiveShadow = true;
+    group.add(pad);
+
+    const next = waypoints[(index + 1) % waypoints.length];
+    const dx = next.x - point.x;
+    const dz = next.z - point.z;
+    const length = Math.hypot(dx, dz);
+    const segment = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.055, length), routeMaterial);
+    segment.position.set((point.x + next.x) / 2, routeY - 0.01, (point.z + next.z) / 2);
+    segment.rotation.y = Math.atan2(dx, dz);
+    segment.receiveShadow = true;
+    group.add(segment);
+  });
+
+  return group;
+}
+
 function prepareRiggedCharacter(gltf) {
   const root = new THREE.Group();
   root.name = "rigged-cooking-scene";
   const pivot = new THREE.Group();
-  pivot.rotation.y = 0;
+  pivot.rotation.y = DEFAULT_STAGE_YAW;
   root.add(pivot);
 
   const model = gltf.scene;
@@ -318,16 +357,20 @@ function prepareRiggedCharacter(gltf) {
 
   const armatureRestPosition = armature.position.clone();
   const armatureRestQuaternion = armature.quaternion.clone();
+  const leftLaneX = armatureRestPosition.x;
+  const rightLaneX = armatureRestPosition.x + 8.45;
+  const routeY = armatureRestPosition.y;
   const waypoints = [
-    new THREE.Vector3(-2.7, 0, 1.0),
-    new THREE.Vector3(-1.5, 0, 0.55),
-    new THREE.Vector3(-0.1, 0, 0.65),
-    new THREE.Vector3(1.35, 0, 0.75),
-    new THREE.Vector3(2.55, 0, 1.45),
-    new THREE.Vector3(1.45, 0, 2.65),
-    new THREE.Vector3(-0.25, 0, 2.85),
-    new THREE.Vector3(-2.15, 0, 2.35),
-  ].map((offset) => armatureRestPosition.clone().add(offset));
+    new THREE.Vector3(leftLaneX, routeY, -5.15),
+    new THREE.Vector3(leftLaneX, routeY, -1.75),
+    new THREE.Vector3(leftLaneX, routeY, 1.75),
+    new THREE.Vector3(leftLaneX, routeY, 5.25),
+    new THREE.Vector3(rightLaneX, routeY, 5.25),
+    new THREE.Vector3(rightLaneX, routeY, 1.75),
+    new THREE.Vector3(rightLaneX, routeY, -1.75),
+    new THREE.Vector3(rightLaneX, routeY, -5.15),
+  ];
+  model.add(createRouteGuide(waypoints));
   const stations = [
     { label: "① お肉を取る", tools: [], toolChance: 0 },
     { label: "② 鍋で加熱する", tools: ["ladle", "spatula"], toolChance: 0.62 },
@@ -699,7 +742,11 @@ function updateRiggedRoaming(now) {
     const isPickupStation = motion.waypointIndex === 0 || motion.waypointIndex === 2;
     character.carriedIngredient.visible = isPickupStation && elapsed > 0.55;
     character.armature.position.y = character.armatureRestPosition.y;
-    character.armature.quaternion.slerp(character.armatureRestQuaternion, 0.06);
+    const stationTurn = motion.waypointIndex >= 4 ? Math.PI : 0;
+    const stationRotation = character.armatureRestQuaternion.clone().multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), stationTurn),
+    );
+    character.armature.quaternion.slerp(stationRotation, 0.09);
 
     const cookDuration = 2.5 + (motion.waypointIndex % 3) * 0.45;
     if (elapsed >= cookDuration) {
@@ -1042,7 +1089,7 @@ async function startQRTracking() {
   state.mode = "qr";
   state.placed = false;
   state.targetQrData = null;
-  state.userYaw = 0;
+  state.userYaw = DEFAULT_STAGE_YAW;
   qrTracker.lastScanAt = 0;
   qrTracker.lastSeenAt = 0;
   anchor.position.set(0, -0.96, 0);
