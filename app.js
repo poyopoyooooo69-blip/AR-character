@@ -457,7 +457,7 @@ function easeOutBack(x) {
 }
 
 function resetPose() {
-  const characterScale = state.mode === "ar" ? 0.24 : 0.68;
+  const characterScale = state.mode === "qr" ? 0.18 : state.mode === "ar" ? 0.24 : 0.68;
   character.root.rotation.set(0, 0, 0);
   character.root.position.set(0, (character.groundOffset || 0) * characterScale, 0);
   character.root.scale.setScalar(characterScale);
@@ -479,7 +479,7 @@ function resetPose() {
 function animateCharacter(time) {
   const seconds = time / 1000;
   const idleBob = Math.sin(seconds * 2.2) * 0.025;
-  const characterScale = state.mode === "ar" ? 0.24 : 0.68;
+  const characterScale = state.mode === "qr" ? 0.18 : state.mode === "ar" ? 0.24 : 0.68;
   const baseY = (character.groundOffset || 0) * characterScale;
 
   if (character.kind === "rigged") {
@@ -821,6 +821,9 @@ async function startQRTracking() {
   anchor.position.set(0, -0.96, 0);
   anchor.quaternion.identity();
   anchor.scale.setScalar(1);
+  camera.position.set(0, 0, 0);
+  camera.rotation.set(0, 0, 0);
+  camera.updateMatrixWorld(true);
   character.root.visible = false;
   ground.visible = false;
   resetPose();
@@ -846,11 +849,77 @@ function mapVideoPointToScreen(point, videoWidth, videoHeight) {
   return new THREE.Vector2(point.x * coverScale + offsetX, point.y * coverScale + offsetY);
 }
 
-function screenPointToWorld(x, y) {
-  pointer.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
-  raycaster.setFromCamera(pointer, camera);
-  const distance = -raycaster.ray.origin.z / raycaster.ray.direction.z;
-  return raycaster.ray.at(distance, new THREE.Vector3());
+function solveLinearSystem(matrix, values) {
+  const size = values.length;
+  const rows = matrix.map((row, index) => [...row, values[index]]);
+  for (let column = 0; column < size; column += 1) {
+    let pivot = column;
+    for (let row = column + 1; row < size; row += 1) {
+      if (Math.abs(rows[row][column]) > Math.abs(rows[pivot][column])) pivot = row;
+    }
+    if (Math.abs(rows[pivot][column]) < 1e-9) return null;
+    [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
+    const divisor = rows[column][column];
+    for (let index = column; index <= size; index += 1) rows[column][index] /= divisor;
+    for (let row = 0; row < size; row += 1) {
+      if (row === column) continue;
+      const factor = rows[row][column];
+      for (let index = column; index <= size; index += 1) {
+        rows[row][index] -= factor * rows[column][index];
+      }
+    }
+  }
+  return rows.map((row) => row[size]);
+}
+
+function estimateMarkerPose(screenPoints) {
+  const focalLength = 0.5 * innerHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const imagePoints = screenPoints.map((point) => ({
+    x: (point.x - innerWidth / 2) / focalLength,
+    y: -(point.y - innerHeight / 2) / focalLength,
+  }));
+  const half = 0.132 / 2;
+  const markerPoints = [
+    { x: -half, y: half },
+    { x: half, y: half },
+    { x: half, y: -half },
+    { x: -half, y: -half },
+  ];
+
+  const matrix = [];
+  const values = [];
+  markerPoints.forEach((marker, index) => {
+    const image = imagePoints[index];
+    matrix.push([marker.x, marker.y, 1, 0, 0, 0, -image.x * marker.x, -image.x * marker.y]);
+    values.push(image.x);
+    matrix.push([0, 0, 0, marker.x, marker.y, 1, -image.y * marker.x, -image.y * marker.y]);
+    values.push(image.y);
+  });
+  const h = solveLinearSystem(matrix, values);
+  if (!h) return null;
+
+  const h1 = new THREE.Vector3(h[0], h[3], h[6]);
+  const h2 = new THREE.Vector3(h[1], h[4], h[7]);
+  const h3 = new THREE.Vector3(h[2], h[5], 1);
+  let scale = 2 / (h1.length() + h2.length());
+  if (h3.z * scale < 0) scale *= -1;
+
+  const r1 = h1.multiplyScalar(scale).normalize();
+  const r2 = h2.multiplyScalar(scale);
+  r2.addScaledVector(r1, -r1.dot(r2)).normalize();
+  const r3 = new THREE.Vector3().crossVectors(r1, r2).normalize();
+  const translationCV = h3.multiplyScalar(scale);
+
+  const toThree = (vector) => new THREE.Vector3(vector.x, vector.y, -vector.z);
+  const xAxis = toThree(r1).normalize();
+  const yAxis = toThree(r3).normalize();
+  const zAxis = toThree(r2).normalize();
+  const rotationMatrix = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+
+  return {
+    position: toThree(translationCV),
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(rotationMatrix).normalize(),
+  };
 }
 
 function updateQRAnchor(code, sourceScale) {
@@ -859,20 +928,18 @@ function updateQRAnchor(code, sourceScale) {
     .map((point) => ({ x: point.x * sourceScale, y: point.y * sourceScale }))
     .map((point) => mapVideoPointToScreen(point, ui.video.videoWidth, ui.video.videoHeight));
 
-  const center = points.reduce((total, point) => total.add(point), new THREE.Vector2()).multiplyScalar(0.25);
-  const width = (points[0].distanceTo(points[1]) + points[3].distanceTo(points[2])) / 2;
-  const targetPosition = screenPointToWorld(center.x, center.y);
-  const targetScale = THREE.MathUtils.clamp(width / 240, 0.32, 1.65);
+  const pose = estimateMarkerPose(points);
+  if (!pose || !Number.isFinite(pose.position.z)) return;
 
   if (!state.placed) {
-    anchor.position.copy(targetPosition);
-    anchor.scale.setScalar(targetScale);
+    anchor.position.copy(pose.position);
+    anchor.quaternion.copy(pose.quaternion);
   } else {
-    anchor.position.lerp(targetPosition, 0.32);
-    const nextScale = THREE.MathUtils.lerp(anchor.scale.x, targetScale, 0.25);
-    anchor.scale.setScalar(nextScale);
+    const distance = anchor.position.distanceTo(pose.position);
+    anchor.position.lerp(pose.position, distance > 0.5 ? 0.65 : 0.22);
+    anchor.quaternion.slerp(pose.quaternion, 0.18);
   }
-  anchor.quaternion.identity();
+  anchor.scale.setScalar(1);
   character.root.visible = true;
   ground.visible = true;
   state.placed = true;
@@ -920,6 +987,9 @@ function stopExperience() {
   anchor.position.set(0, -0.96, 0);
   anchor.quaternion.identity();
   anchor.scale.setScalar(1);
+  camera.position.set(0, 0.15, 4.2);
+  camera.rotation.set(0, 0, 0);
+  camera.updateMatrixWorld(true);
   character.root.visible = true;
   ground.visible = true;
   resetPose();
