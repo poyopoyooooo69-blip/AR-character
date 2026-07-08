@@ -186,7 +186,10 @@ function prepareRiggedCharacter(gltf) {
     if (!object.isMesh) return;
     object.castShadow = true;
     object.receiveShadow = true;
-    object.userData.characterPart = true;
+    object.userData.characterPart = false;
+  });
+  armature.traverse((object) => {
+    if (object.isMesh) object.userData.characterPart = true;
   });
 
   const boneNames = [
@@ -206,26 +209,72 @@ function prepareRiggedCharacter(gltf) {
     boneRest[name] = bone.quaternion.clone();
   });
 
+  const ingredientMaterial = new THREE.MeshStandardMaterial({ color: 0xef4b3f, roughness: 0.72 });
+  const carriedIngredient = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), ingredientMaterial);
+  carriedIngredient.name = "carried-ingredient";
+  carriedIngredient.visible = false;
+  carriedIngredient.castShadow = true;
+  if (bones.hand_R) {
+    carriedIngredient.position.set(0, -0.42, 0.12);
+    bones.hand_R.add(carriedIngredient);
+  }
+
   const mixer = new THREE.AnimationMixer(model);
+  const walkClip = gltf.animations.find((clip) => clip.name === "walk_animetion") || gltf.animations[0];
   const cookingClip = gltf.animations.find((clip) => clip.name !== "walk_animetion") || gltf.animations[0];
+  const walkAction = mixer.clipAction(walkClip);
   const cookingAction = mixer.clipAction(cookingClip);
   cookingAction.setLoop(THREE.LoopRepeat, Infinity).play();
 
-  return {
+  const armatureRestPosition = armature.position.clone();
+  const armatureRestQuaternion = armature.quaternion.clone();
+  const waypoints = [
+    new THREE.Vector3(-1.8, 0, 1.8),
+    new THREE.Vector3(0, 0, 1.5),
+    new THREE.Vector3(1.6, 0, 1.8),
+    new THREE.Vector3(2.2, 0, 0.8),
+    new THREE.Vector3(0.5, 0, 2.2),
+  ].map((offset) => armatureRestPosition.clone().add(offset));
+  armature.position.copy(waypoints[0]);
+
+  const riggedCharacter = {
     kind: "rigged",
     root,
     model,
     pivot,
     mixer,
     cookingAction,
+    walkAction,
+    activeAction: cookingAction,
+    armature,
+    armatureRestPosition,
+    armatureRestQuaternion,
+    carriedIngredient,
+    ingredientMaterial,
+    motion: {
+      phase: "cook",
+      phaseStartedAt: performance.now(),
+      waypointIndex: 0,
+      from: waypoints[0].clone(),
+      to: waypoints[0].clone(),
+      waypoints,
+    },
     bones,
     boneRest,
     lastAnimationTime: performance.now(),
     groundOffset: 0,
+    playRigAction(action) {
+      if (this.activeAction === action && action.isRunning()) return;
+      if (this.activeAction?.isRunning()) this.activeAction.fadeOut(0.25);
+      action.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.25).play();
+      this.activeAction = action;
+    },
     resetRigPose() {
       Object.entries(boneRest).forEach(([name, quaternion]) => bones[name]?.quaternion.copy(quaternion));
     },
   };
+
+  return riggedCharacter;
 }
 
 function prepareVetnumCharacter(model) {
@@ -534,6 +583,59 @@ function applyRetargetedBone(targetName, sourceName, strength = 0.35) {
   target.quaternion.copy(rest).multiply(weighted);
 }
 
+function updateRiggedRoaming(now) {
+  const motion = character.motion;
+  const elapsed = (now - motion.phaseStartedAt) / 1000;
+
+  if (motion.phase === "cook") {
+    character.playRigAction(character.cookingAction);
+    character.carriedIngredient.visible = false;
+    character.armature.position.y = character.armatureRestPosition.y;
+    character.armature.quaternion.slerp(character.armatureRestQuaternion, 0.06);
+
+    const cookDuration = 2.5 + (motion.waypointIndex % 3) * 0.45;
+    if (elapsed >= cookDuration) {
+      motion.phase = "walk";
+      motion.phaseStartedAt = now;
+      motion.from.copy(character.armature.position);
+      motion.waypointIndex = (motion.waypointIndex + 1) % motion.waypoints.length;
+      motion.to.copy(motion.waypoints[motion.waypointIndex]);
+      const ingredientColors = [0xef4b3f, 0xffc83d, 0x70b957, 0xe992bc, 0xf28f3b];
+      character.ingredientMaterial.color.setHex(ingredientColors[motion.waypointIndex]);
+      character.carriedIngredient.visible = true;
+      character.playRigAction(character.walkAction);
+      if (state.mode === "qr") ui.bubble.textContent = "食材を運んでるよ！";
+    }
+    return;
+  }
+
+  character.playRigAction(character.walkAction);
+  character.carriedIngredient.visible = true;
+  const distance = motion.from.distanceTo(motion.to);
+  const walkDuration = Math.max(1.15, distance * 0.62);
+  const progress = Math.min(elapsed / walkDuration, 1);
+  const smooth = progress * progress * (3 - 2 * progress);
+  character.armature.position.lerpVectors(motion.from, motion.to, smooth);
+  character.armature.position.y = character.armatureRestPosition.y;
+
+  const direction = motion.to.clone().sub(motion.from);
+  if (direction.lengthSq() > 0.001) {
+    const heading = Math.atan2(direction.x, direction.z);
+    const targetRotation = character.armatureRestQuaternion.clone().multiply(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading),
+    );
+    character.armature.quaternion.slerp(targetRotation, 0.14);
+  }
+
+  if (progress >= 1) {
+    motion.phase = "cook";
+    motion.phaseStartedAt = now;
+    character.playRigAction(character.cookingAction);
+    character.carriedIngredient.visible = false;
+    if (state.mode === "qr") ui.bubble.textContent = "ここでお料理！";
+  }
+}
+
 function animateRiggedCharacter(time, baseY, characterScale) {
   character.root.position.y = baseY;
   if (state.action === "fbx" && tapMotion) {
@@ -557,12 +659,18 @@ function animateRiggedCharacter(time, baseY, characterScale) {
       state.action = null;
       character.resetRigPose();
       character.lastAnimationTime = time;
-      character.cookingAction.reset().setLoop(THREE.LoopRepeat, Infinity).play();
+      character.motion.phase = "cook";
+      character.motion.phaseStartedAt = performance.now();
+      character.motion.from.copy(character.armature.position);
+      character.motion.to.copy(character.armature.position);
+      character.activeAction = null;
+      character.playRigAction(character.cookingAction);
       showMessage("お料理にもどるよ！");
     }
     return;
   }
 
+  updateRiggedRoaming(performance.now());
   const delta = Math.min((time - character.lastAnimationTime) / 1000, 0.05);
   character.lastAnimationTime = time;
   character.mixer.update(Math.max(delta, 0));
@@ -704,7 +812,11 @@ function triggerAction() {
     }
     state.action = "fbx";
     state.actionStartedAt = performance.now();
-    if (character.kind === "rigged") character.mixer.stopAllAction();
+    if (character.kind === "rigged") {
+      character.mixer.stopAllAction();
+      character.activeAction = null;
+      character.carriedIngredient.visible = false;
+    }
     tapMotion.mixer.stopAllAction();
     tapMotion.action.reset().setLoop(THREE.LoopOnce, 1).play();
     showMessage("ちょっとひとやすみ♪");
@@ -1059,5 +1171,11 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
+if (new URLSearchParams(location.search).get("preview") === "1") {
+  ui.welcome.classList.add("hidden");
+  ui.guide.classList.add("hidden");
+  ui.interaction.classList.add("hidden");
+}
 
 renderer.setAnimationLoop(render);
