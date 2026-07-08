@@ -161,6 +161,87 @@ async function loadVetnumModel() {
   }
 }
 
+function createHandTools(handBone) {
+  if (!handBone) return {};
+  const metal = new THREE.MeshStandardMaterial({ color: 0xcbd1d8, roughness: 0.32, metalness: 0.68 });
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x59616b, roughness: 0.38, metalness: 0.55 });
+  const wood = new THREE.MeshStandardMaterial({ color: 0x9b552d, roughness: 0.74 });
+  const tools = {};
+
+  const makeTool = (name) => {
+    const group = new THREE.Group();
+    group.name = `tool-${name}`;
+    group.position.set(0.05, -0.48, 0.1);
+    group.rotation.set(0.25, 0, -0.45);
+    group.visible = false;
+    handBone.add(group);
+    tools[name] = group;
+    return group;
+  };
+
+  const addHandle = (group, length = 0.62) => {
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, length, 5, 10), wood);
+    handle.castShadow = true;
+    group.add(handle);
+    return handle;
+  };
+
+  const spatula = makeTool("spatula");
+  addHandle(spatula, 0.58);
+  const spatulaHead = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.38, 0.055), darkMetal);
+  spatulaHead.position.y = 0.49;
+  spatulaHead.castShadow = true;
+  spatula.add(spatulaHead);
+
+  const whisk = makeTool("whisk");
+  addHandle(whisk, 0.48);
+  for (let index = -1; index <= 1; index += 1) {
+    const wire = new THREE.Mesh(new THREE.TorusGeometry(0.13 + Math.abs(index) * 0.025, 0.016, 6, 16), metal);
+    wire.position.y = 0.43;
+    wire.rotation.x = Math.PI / 2;
+    wire.rotation.y = index * 0.45;
+    whisk.add(wire);
+  }
+
+  const ladle = makeTool("ladle");
+  addHandle(ladle, 0.64);
+  const ladleCup = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 10), metal);
+  ladleCup.position.y = 0.51;
+  ladleCup.scale.set(1, 0.35, 1);
+  ladle.add(ladleCup);
+
+  const knife = makeTool("knife");
+  const knifeHandle = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 0.12), wood);
+  knifeHandle.position.y = -0.17;
+  knife.add(knifeHandle);
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.34), metal);
+  blade.position.y = 0.3;
+  blade.castShadow = true;
+  knife.add(blade);
+
+  const shaker = makeTool("shaker");
+  const shakerBody = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.38, 16), metal);
+  const shakerTop = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.09, 16), darkMetal);
+  shakerTop.position.y = 0.23;
+  shaker.add(shakerBody, shakerTop);
+
+  return tools;
+}
+
+function hideRiggedTools(riggedCharacter) {
+  Object.values(riggedCharacter.tools || {}).forEach((tool) => {
+    tool.visible = false;
+  });
+}
+
+function chooseRiggedStationTool(riggedCharacter) {
+  hideRiggedTools(riggedCharacter);
+  const station = riggedCharacter.motion.stations[riggedCharacter.motion.waypointIndex];
+  if (!station.tools.length || Math.random() > station.toolChance) return;
+  const name = station.tools[Math.floor(Math.random() * station.tools.length)];
+  if (riggedCharacter.tools[name]) riggedCharacter.tools[name].visible = true;
+}
+
 function prepareRiggedCharacter(gltf) {
   const root = new THREE.Group();
   root.name = "rigged-cooking-scene";
@@ -229,13 +310,27 @@ function prepareRiggedCharacter(gltf) {
   const armatureRestPosition = armature.position.clone();
   const armatureRestQuaternion = armature.quaternion.clone();
   const waypoints = [
-    new THREE.Vector3(-2.4, 0, 1.2),
-    new THREE.Vector3(-0.8, 0, 2.4),
-    new THREE.Vector3(1.4, 0, 2.0),
-    new THREE.Vector3(2.8, 0, 0.7),
-    new THREE.Vector3(0.4, 0, 3.0),
+    new THREE.Vector3(-2.7, 0, 1.0),
+    new THREE.Vector3(-1.5, 0, 0.55),
+    new THREE.Vector3(-0.1, 0, 0.65),
+    new THREE.Vector3(1.35, 0, 0.75),
+    new THREE.Vector3(2.55, 0, 1.45),
+    new THREE.Vector3(1.45, 0, 2.65),
+    new THREE.Vector3(-0.25, 0, 2.85),
+    new THREE.Vector3(-2.15, 0, 2.35),
   ].map((offset) => armatureRestPosition.clone().add(offset));
+  const stations = [
+    { label: "① お肉を取る", tools: [], toolChance: 0 },
+    { label: "② 鍋で加熱する", tools: ["ladle", "spatula"], toolChance: 0.62 },
+    { label: "③ 食材を取る", tools: [], toolChance: 0 },
+    { label: "④ 食材を切る", tools: ["knife"], toolChance: 0.72 },
+    { label: "⑤ 材料を混ぜる", tools: ["whisk", "ladle"], toolChance: 0.68 },
+    { label: "⑥ 味付けする", tools: ["shaker"], toolChance: 0.58 },
+    { label: "⑦ 盛り付ける", tools: ["ladle", "spatula"], toolChance: 0.55 },
+    { label: "⑧ 料理を完成させる", tools: ["spatula"], toolChance: 0.25 },
+  ];
   armature.position.copy(waypoints[0]);
+  const tools = createHandTools(bones.hand_R);
 
   const riggedCharacter = {
     kind: "rigged",
@@ -251,6 +346,7 @@ function prepareRiggedCharacter(gltf) {
     armatureRestQuaternion,
     carriedIngredient,
     ingredientMaterial,
+    tools,
     motion: {
       phase: "cook",
       phaseStartedAt: performance.now(),
@@ -258,6 +354,7 @@ function prepareRiggedCharacter(gltf) {
       from: waypoints[0].clone(),
       to: waypoints[0].clone(),
       waypoints,
+      stations,
     },
     bones,
     boneRest,
@@ -274,6 +371,7 @@ function prepareRiggedCharacter(gltf) {
     },
   };
 
+  chooseRiggedStationTool(riggedCharacter);
   return riggedCharacter;
 }
 
@@ -589,7 +687,8 @@ function updateRiggedRoaming(now) {
 
   if (motion.phase === "cook") {
     character.playRigAction(character.cookingAction);
-    character.carriedIngredient.visible = false;
+    const isPickupStation = motion.waypointIndex === 0 || motion.waypointIndex === 2;
+    character.carriedIngredient.visible = isPickupStation && elapsed > 0.55;
     character.armature.position.y = character.armatureRestPosition.y;
     character.armature.quaternion.slerp(character.armatureRestQuaternion, 0.06);
 
@@ -598,17 +697,16 @@ function updateRiggedRoaming(now) {
       motion.phase = "walk";
       motion.phaseStartedAt = now;
       motion.from.copy(character.armature.position);
-      let nextWaypoint = Math.floor(Math.random() * motion.waypoints.length);
-      if (nextWaypoint === motion.waypointIndex) {
-        nextWaypoint = (nextWaypoint + 1) % motion.waypoints.length;
-      }
-      motion.waypointIndex = nextWaypoint;
+      motion.waypointIndex = (motion.waypointIndex + 1) % motion.waypoints.length;
       motion.to.copy(motion.waypoints[motion.waypointIndex]);
+      hideRiggedTools(character);
       const ingredientColors = [0xef4b3f, 0xffc83d, 0x70b957, 0xe992bc, 0xf28f3b];
       character.ingredientMaterial.color.setHex(ingredientColors[motion.waypointIndex]);
       character.carriedIngredient.visible = true;
       character.playRigAction(character.walkAction);
-      if (state.mode === "qr") ui.bubble.textContent = "食材を運んでるよ！";
+      if (state.mode === "qr") {
+        ui.bubble.textContent = `次は ${motion.stations[motion.waypointIndex].label.slice(2)}`;
+      }
     }
     return;
   }
@@ -636,7 +734,8 @@ function updateRiggedRoaming(now) {
     motion.phaseStartedAt = now;
     character.playRigAction(character.cookingAction);
     character.carriedIngredient.visible = false;
-    if (state.mode === "qr") ui.bubble.textContent = "ここでお料理！";
+    chooseRiggedStationTool(character);
+    if (state.mode === "qr") ui.bubble.textContent = motion.stations[motion.waypointIndex].label;
   }
 }
 
@@ -669,6 +768,7 @@ function animateRiggedCharacter(time, baseY, characterScale) {
       character.motion.to.copy(character.armature.position);
       character.activeAction = null;
       character.playRigAction(character.cookingAction);
+      chooseRiggedStationTool(character);
       showMessage("お料理にもどるよ！");
     }
     return;
@@ -820,6 +920,7 @@ function triggerAction() {
       character.mixer.stopAllAction();
       character.activeAction = null;
       character.carriedIngredient.visible = false;
+      hideRiggedTools(character);
     }
     tapMotion.mixer.stopAllAction();
     tapMotion.action.reset().setLoop(THREE.LoopOnce, 1).play();
