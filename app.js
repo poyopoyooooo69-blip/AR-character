@@ -229,11 +229,11 @@ function prepareRiggedCharacter(gltf) {
   const armatureRestPosition = armature.position.clone();
   const armatureRestQuaternion = armature.quaternion.clone();
   const waypoints = [
-    new THREE.Vector3(-1.8, 0, 1.8),
-    new THREE.Vector3(0, 0, 1.5),
-    new THREE.Vector3(1.6, 0, 1.8),
-    new THREE.Vector3(2.2, 0, 0.8),
-    new THREE.Vector3(0.5, 0, 2.2),
+    new THREE.Vector3(-2.4, 0, 1.2),
+    new THREE.Vector3(-0.8, 0, 2.4),
+    new THREE.Vector3(1.4, 0, 2.0),
+    new THREE.Vector3(2.8, 0, 0.7),
+    new THREE.Vector3(0.4, 0, 3.0),
   ].map((offset) => armatureRestPosition.clone().add(offset));
   armature.position.copy(waypoints[0]);
 
@@ -598,7 +598,11 @@ function updateRiggedRoaming(now) {
       motion.phase = "walk";
       motion.phaseStartedAt = now;
       motion.from.copy(character.armature.position);
-      motion.waypointIndex = (motion.waypointIndex + 1) % motion.waypoints.length;
+      let nextWaypoint = Math.floor(Math.random() * motion.waypoints.length);
+      if (nextWaypoint === motion.waypointIndex) {
+        nextWaypoint = (nextWaypoint + 1) % motion.waypoints.length;
+      }
+      motion.waypointIndex = nextWaypoint;
       motion.to.copy(motion.waypoints[motion.waypointIndex]);
       const ingredientColors = [0xef4b3f, 0xffc83d, 0x70b957, 0xe992bc, 0xf28f3b];
       character.ingredientMaterial.color.setHex(ingredientColors[motion.waypointIndex]);
@@ -1024,8 +1028,10 @@ function estimateMarkerPose(screenPoints) {
 
   const toThree = (vector) => new THREE.Vector3(vector.x, vector.y, -vector.z);
   const xAxis = toThree(r1).normalize();
-  const yAxis = toThree(r3).normalize();
-  const zAxis = toThree(r2).normalize();
+  // QR's detected normal points through the printed sheet. Flip both local Y and Z
+  // so the visible side of the QR becomes the stage's upward-facing surface.
+  const yAxis = toThree(r3).multiplyScalar(-1).normalize();
+  const zAxis = toThree(r2).multiplyScalar(-1).normalize();
   const rotationMatrix = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
 
   return {
