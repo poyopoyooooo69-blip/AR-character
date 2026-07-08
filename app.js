@@ -28,6 +28,7 @@ const state = {
   hitTestSource: null,
   hitTestRequested: false,
   targetQrData: null,
+  userYaw: 0,
 };
 
 let tapMotion = null;
@@ -38,6 +39,14 @@ const qrTracker = {
   lastSeenAt: 0,
 };
 qrTracker.context = qrTracker.canvas.getContext("2d", { willReadFrequently: true });
+
+const gesture = {
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  startYaw: 0,
+  moved: false,
+};
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 40);
@@ -1033,11 +1042,13 @@ async function startQRTracking() {
   state.mode = "qr";
   state.placed = false;
   state.targetQrData = null;
+  state.userYaw = 0;
   qrTracker.lastScanAt = 0;
   qrTracker.lastSeenAt = 0;
   anchor.position.set(0, -0.96, 0);
   anchor.quaternion.identity();
   anchor.scale.setScalar(1);
+  if (character.kind === "rigged") character.pivot.rotation.y = state.userYaw;
   camera.position.set(0, 0, 0);
   camera.rotation.set(0, 0, 0);
   camera.updateMatrixWorld(true);
@@ -1149,16 +1160,20 @@ function updateQRAnchor(code, sourceScale) {
 
   const pose = estimateMarkerPose(points);
   if (!pose || !Number.isFinite(pose.position.z)) return;
+  const cameraDistance = pose.position.length();
+  const targetSceneScale = THREE.MathUtils.clamp(cameraDistance / 1.8, 0.34, 1.6);
 
   if (!state.placed) {
     anchor.position.copy(pose.position);
     anchor.quaternion.copy(pose.quaternion);
+    anchor.scale.setScalar(targetSceneScale);
   } else {
     const distance = anchor.position.distanceTo(pose.position);
     anchor.position.lerp(pose.position, distance > 0.5 ? 0.65 : 0.22);
     anchor.quaternion.slerp(pose.quaternion, 0.18);
+    const nextScale = THREE.MathUtils.lerp(anchor.scale.x, targetSceneScale, 0.16);
+    anchor.scale.setScalar(nextScale);
   }
-  anchor.scale.setScalar(1);
   character.root.visible = true;
   ground.visible = true;
   state.placed = true;
@@ -1267,10 +1282,39 @@ ui.sound.addEventListener("click", () => {
   if (state.sound) playChime();
 });
 
+renderer.domElement.addEventListener("pointerdown", (event) => {
+  if (state.mode === "ar" || !state.placed) return;
+  gesture.pointerId = event.pointerId;
+  gesture.startX = event.clientX;
+  gesture.startY = event.clientY;
+  gesture.startYaw = state.userYaw;
+  gesture.moved = false;
+  renderer.domElement.setPointerCapture?.(event.pointerId);
+});
+
+renderer.domElement.addEventListener("pointermove", (event) => {
+  if (gesture.pointerId !== event.pointerId) return;
+  const deltaX = event.clientX - gesture.startX;
+  const deltaY = event.clientY - gesture.startY;
+  if (Math.hypot(deltaX, deltaY) > 7) gesture.moved = true;
+  if (!gesture.moved || character.kind !== "rigged") return;
+  state.userYaw = gesture.startYaw + deltaX * 0.007;
+  character.pivot.rotation.y = state.userYaw;
+});
+
 renderer.domElement.addEventListener("pointerup", (event) => {
-  if (state.mode !== "ar" && state.placed && hitCharacterFromScreen(event.clientX, event.clientY)) {
+  if (gesture.pointerId !== event.pointerId) return;
+  const wasMoved = gesture.moved;
+  gesture.pointerId = null;
+  renderer.domElement.releasePointerCapture?.(event.pointerId);
+  if (!wasMoved && state.mode !== "ar" && state.placed && hitCharacterFromScreen(event.clientX, event.clientY)) {
     triggerAction();
   }
+});
+
+renderer.domElement.addEventListener("pointercancel", () => {
+  gesture.pointerId = null;
+  gesture.moved = false;
 });
 
 addEventListener("resize", () => {
@@ -1280,6 +1324,7 @@ addEventListener("resize", () => {
 });
 
 if (new URLSearchParams(location.search).get("preview") === "1") {
+  state.placed = true;
   ui.welcome.classList.add("hidden");
   ui.guide.classList.add("hidden");
   ui.interaction.classList.add("hidden");
