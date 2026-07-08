@@ -27,9 +27,17 @@ const state = {
   sound: true,
   hitTestSource: null,
   hitTestRequested: false,
+  targetQrData: null,
 };
 
 let tapMotion = null;
+const qrTracker = {
+  canvas: document.createElement("canvas"),
+  context: null,
+  lastScanAt: 0,
+  lastSeenAt: 0,
+};
+qrTracker.context = qrTracker.canvas.getContext("2d", { willReadFrequently: true });
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 40);
@@ -112,7 +120,7 @@ async function loadTapMotion() {
     if (!clip) throw new Error("No usable animation clip was found in Idle.fbx.");
 
     const boneNames = [
-      "mixamorigHips", "mixamorigSpine", "mixamorigNeck", "mixamorigHead",
+      "mixamorigHips", "mixamorigSpine", "mixamorigSpine1", "mixamorigSpine2", "mixamorigNeck", "mixamorigHead",
       "mixamorigLeftArm", "mixamorigLeftForeArm", "mixamorigLeftHand",
       "mixamorigRightArm", "mixamorigRightForeArm", "mixamorigRightHand",
       "mixamorigLeftUpLeg", "mixamorigLeftLeg", "mixamorigRightUpLeg", "mixamorigRightLeg",
@@ -139,7 +147,9 @@ async function loadTapMotion() {
 async function loadVetnumModel() {
   try {
     const gltf = await new GLTFLoader().loadAsync("./assets/vetnum.glb");
-    const replacement = prepareVetnumCharacter(gltf.scene);
+    const replacement = gltf.animations.length
+      ? prepareRiggedCharacter(gltf)
+      : prepareVetnumCharacter(gltf.scene);
     const wasVisible = character.root.visible;
     anchor.remove(character.root);
     character = replacement;
@@ -149,6 +159,73 @@ async function loadVetnumModel() {
   } catch (error) {
     console.warn("Custom GLB model could not be loaded; using the built-in character.", error);
   }
+}
+
+function prepareRiggedCharacter(gltf) {
+  const root = new THREE.Group();
+  root.name = "rigged-cooking-scene";
+  const pivot = new THREE.Group();
+  pivot.rotation.y = 0;
+  root.add(pivot);
+
+  const model = gltf.scene;
+  const armature = model.getObjectByName("アーマチュア") || model;
+  const characterBox = new THREE.Box3().setFromObject(armature);
+  const characterSize = characterBox.getSize(new THREE.Vector3());
+  const characterCenter = characterBox.getCenter(new THREE.Vector3());
+  const normalizedScale = 2.15 / characterSize.y;
+  model.scale.setScalar(normalizedScale);
+  model.position.set(
+    -characterCenter.x * normalizedScale,
+    -characterBox.min.y * normalizedScale,
+    -characterCenter.z * normalizedScale,
+  );
+  pivot.add(model);
+
+  model.traverse((object) => {
+    if (!object.isMesh) return;
+    object.castShadow = true;
+    object.receiveShadow = true;
+    object.userData.characterPart = true;
+  });
+
+  const boneNames = [
+    "neck", "head", "chest", "ninoude_L", "zenwan_L", "hand_L",
+    "ninoude_R", "zenwan_R", "hand_R", "futomomo_L", "fukurahagi_L",
+    "futomomo_R", "fukurahagi_R",
+  ];
+  const bones = {};
+  const boneRest = {};
+  boneNames.forEach((name) => {
+    let bone = null;
+    model.traverse((object) => {
+      if (!bone && object.isBone && object.name === name) bone = object;
+    });
+    if (!bone) return;
+    bones[name] = bone;
+    boneRest[name] = bone.quaternion.clone();
+  });
+
+  const mixer = new THREE.AnimationMixer(model);
+  const cookingClip = gltf.animations.find((clip) => clip.name !== "walk_animetion") || gltf.animations[0];
+  const cookingAction = mixer.clipAction(cookingClip);
+  cookingAction.setLoop(THREE.LoopRepeat, Infinity).play();
+
+  return {
+    kind: "rigged",
+    root,
+    model,
+    pivot,
+    mixer,
+    cookingAction,
+    bones,
+    boneRest,
+    lastAnimationTime: performance.now(),
+    groundOffset: 0,
+    resetRigPose() {
+      Object.entries(boneRest).forEach(([name, quaternion]) => bones[name]?.quaternion.copy(quaternion));
+    },
+  };
 }
 
 function prepareVetnumCharacter(model) {
@@ -384,6 +461,10 @@ function resetPose() {
   character.root.rotation.set(0, 0, 0);
   character.root.position.set(0, (character.groundOffset || 0) * characterScale, 0);
   character.root.scale.setScalar(characterScale);
+  if (character.kind === "rigged") {
+    character.resetRigPose();
+    return;
+  }
   if (character.kind === "vetnum") {
     character.resetCustomPose();
     return;
@@ -400,6 +481,11 @@ function animateCharacter(time) {
   const idleBob = Math.sin(seconds * 2.2) * 0.025;
   const characterScale = state.mode === "ar" ? 0.24 : 0.68;
   const baseY = (character.groundOffset || 0) * characterScale;
+
+  if (character.kind === "rigged") {
+    animateRiggedCharacter(time, baseY, characterScale);
+    return;
+  }
 
   if (character.kind === "vetnum") {
     animateCookingCharacter(seconds, baseY, characterScale);
@@ -438,6 +524,48 @@ function animateCharacter(time) {
     state.action = null;
     resetPose();
   }
+}
+
+function applyRetargetedBone(targetName, sourceName, strength = 0.35) {
+  const target = character.bones[targetName];
+  const rest = character.boneRest[targetName];
+  if (!target || !rest) return;
+  const weighted = new THREE.Quaternion().slerp(animationDelta(sourceName), strength);
+  target.quaternion.copy(rest).multiply(weighted);
+}
+
+function animateRiggedCharacter(time, baseY, characterScale) {
+  character.root.position.y = baseY;
+  if (state.action === "fbx" && tapMotion) {
+    const elapsed = (performance.now() - state.actionStartedAt) / 1000;
+    tapMotion.mixer.setTime(Math.min(elapsed, tapMotion.clip.duration));
+    applyRetargetedBone("head", "mixamorigHead", 0.42);
+    applyRetargetedBone("chest", "mixamorigSpine2", 0.35);
+    applyRetargetedBone("ninoude_L", "mixamorigLeftArm", 0.38);
+    applyRetargetedBone("zenwan_L", "mixamorigLeftForeArm", 0.42);
+    applyRetargetedBone("hand_L", "mixamorigLeftHand", 0.35);
+    applyRetargetedBone("ninoude_R", "mixamorigRightArm", 0.38);
+    applyRetargetedBone("zenwan_R", "mixamorigRightForeArm", 0.42);
+    applyRetargetedBone("hand_R", "mixamorigRightHand", 0.35);
+    applyRetargetedBone("futomomo_L", "mixamorigLeftUpLeg", 0.28);
+    applyRetargetedBone("fukurahagi_L", "mixamorigLeftLeg", 0.25);
+    applyRetargetedBone("futomomo_R", "mixamorigRightUpLeg", 0.28);
+    applyRetargetedBone("fukurahagi_R", "mixamorigRightLeg", 0.25);
+
+    if (elapsed >= tapMotion.clip.duration) {
+      tapMotion.mixer.stopAllAction();
+      state.action = null;
+      character.resetRigPose();
+      character.lastAnimationTime = time;
+      character.cookingAction.reset().setLoop(THREE.LoopRepeat, Infinity).play();
+      showMessage("お料理にもどるよ！");
+    }
+    return;
+  }
+
+  const delta = Math.min((time - character.lastAnimationTime) / 1000, 0.05);
+  character.lastAnimationTime = time;
+  character.mixer.update(Math.max(delta, 0));
 }
 
 function animateCookingCharacter(seconds, baseY, characterScale) {
@@ -569,13 +697,14 @@ function animateTapMotion(baseY, characterScale) {
 
 function triggerAction() {
   if (state.action) return;
-  if (character.kind === "vetnum") {
+  if (character.kind === "vetnum" || character.kind === "rigged") {
     if (!tapMotion) {
       showMessage("動きを読み込み中…");
       return;
     }
     state.action = "fbx";
     state.actionStartedAt = performance.now();
+    if (character.kind === "rigged") character.mixer.stopAllAction();
     tapMotion.mixer.stopAllAction();
     tapMotion.action.reset().setLoop(THREE.LoopOnce, 1).play();
     showMessage("ちょっとひとやすみ♪");
@@ -638,16 +767,7 @@ async function startExperience() {
   ui.error.classList.add("hidden");
   audioContext ??= new (window.AudioContext || window.webkitAudioContext)();
 
-  const canUseWebXR =
-    window.isSecureContext &&
-    navigator.xr &&
-    (await navigator.xr.isSessionSupported("immersive-ar").catch(() => false));
-
-  if (canUseWebXR) {
-    await startWebXR();
-  } else {
-    await startCameraFallback();
-  }
+  await startQRTracking();
 }
 
 async function startWebXR() {
@@ -671,7 +791,7 @@ async function startWebXR() {
     renderer.setAnimationLoop(render);
   } catch (error) {
     console.warn("WebXR start failed; using camera fallback.", error);
-    await startCameraFallback();
+    await startQRTracking();
   }
 }
 
@@ -692,36 +812,105 @@ function onXRSelect() {
   if (state.placed) triggerAction();
 }
 
-async function startCameraFallback() {
-  state.mode = "camera";
-  state.placed = true;
+async function startQRTracking() {
+  state.mode = "qr";
+  state.placed = false;
+  state.targetQrData = null;
+  qrTracker.lastScanAt = 0;
+  qrTracker.lastSeenAt = 0;
   anchor.position.set(0, -0.96, 0);
   anchor.quaternion.identity();
   anchor.scale.setScalar(1);
-  character.root.visible = true;
-  ground.visible = true;
+  character.root.visible = false;
+  ground.visible = false;
   resetPose();
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false,
-    });
-    ui.video.srcObject = stream;
-    await ui.video.play();
-    document.body.classList.add("camera-active");
-  } catch (error) {
-    console.warn("Camera unavailable; keeping 3D preview.", error);
-    if (!["NotAllowedError", "NotFoundError", "NotReadableError"].includes(error.name)) {
-      throw error;
-    }
-    ui.guideText.innerHTML = "カメラなしのプレビューモードです";
-  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false,
+  });
+  ui.video.srcObject = stream;
+  await ui.video.play();
+  document.body.classList.add("camera-active");
 
+  ui.guideText.innerHTML = "QRコードを地面に置いて<br />カメラに映してください";
+  ui.guide.classList.remove("hidden");
+  ui.interaction.classList.add("hidden");
+  renderer.setAnimationLoop(render);
+}
+
+function mapVideoPointToScreen(point, videoWidth, videoHeight) {
+  const coverScale = Math.max(innerWidth / videoWidth, innerHeight / videoHeight);
+  const offsetX = (innerWidth - videoWidth * coverScale) / 2;
+  const offsetY = (innerHeight - videoHeight * coverScale) / 2;
+  return new THREE.Vector2(point.x * coverScale + offsetX, point.y * coverScale + offsetY);
+}
+
+function screenPointToWorld(x, y) {
+  pointer.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const distance = -raycaster.ray.origin.z / raycaster.ray.direction.z;
+  return raycaster.ray.at(distance, new THREE.Vector3());
+}
+
+function updateQRAnchor(code, sourceScale) {
+  const raw = code.location;
+  const points = [raw.topLeftCorner, raw.topRightCorner, raw.bottomRightCorner, raw.bottomLeftCorner]
+    .map((point) => ({ x: point.x * sourceScale, y: point.y * sourceScale }))
+    .map((point) => mapVideoPointToScreen(point, ui.video.videoWidth, ui.video.videoHeight));
+
+  const center = points.reduce((total, point) => total.add(point), new THREE.Vector2()).multiplyScalar(0.25);
+  const width = (points[0].distanceTo(points[1]) + points[3].distanceTo(points[2])) / 2;
+  const targetPosition = screenPointToWorld(center.x, center.y);
+  const targetScale = THREE.MathUtils.clamp(width / 240, 0.32, 1.65);
+
+  if (!state.placed) {
+    anchor.position.copy(targetPosition);
+    anchor.scale.setScalar(targetScale);
+  } else {
+    anchor.position.lerp(targetPosition, 0.32);
+    const nextScale = THREE.MathUtils.lerp(anchor.scale.x, targetScale, 0.25);
+    anchor.scale.setScalar(nextScale);
+  }
+  anchor.quaternion.identity();
+  character.root.visible = true;
+  ground.visible = true;
+  state.placed = true;
+  qrTracker.lastSeenAt = performance.now();
   ui.guide.classList.add("hidden");
   ui.interaction.classList.remove("hidden");
-  renderer.setAnimationLoop(render);
-  playChime();
+}
+
+function scanQRCode(time) {
+  if (time - qrTracker.lastScanAt < 110 || ui.video.readyState < 2 || !window.jsQR) return;
+  qrTracker.lastScanAt = time;
+
+  const sourceWidth = ui.video.videoWidth;
+  const sourceHeight = ui.video.videoHeight;
+  const scanWidth = Math.min(520, sourceWidth);
+  const scanHeight = Math.round(scanWidth * sourceHeight / sourceWidth);
+  if (!scanWidth || !scanHeight) return;
+  if (qrTracker.canvas.width !== scanWidth || qrTracker.canvas.height !== scanHeight) {
+    qrTracker.canvas.width = scanWidth;
+    qrTracker.canvas.height = scanHeight;
+  }
+  qrTracker.context.drawImage(ui.video, 0, 0, scanWidth, scanHeight);
+  const image = qrTracker.context.getImageData(0, 0, scanWidth, scanHeight);
+  const code = window.jsQR(image.data, scanWidth, scanHeight, { inversionAttempts: "dontInvert" });
+
+  if (code) {
+    state.targetQrData ||= code.data;
+    if (code.data === state.targetQrData) updateQRAnchor(code, sourceWidth / scanWidth);
+  }
+
+  if (state.placed && time - qrTracker.lastSeenAt > 650) {
+    state.placed = false;
+    character.root.visible = false;
+    ground.visible = false;
+    ui.interaction.classList.add("hidden");
+    ui.guideText.innerHTML = "QRコードをもう一度<br />カメラに映してください";
+    ui.guide.classList.remove("hidden");
+  }
 }
 
 function stopExperience() {
@@ -737,6 +926,7 @@ function stopExperience() {
 }
 
 function render(time, frame) {
+  if (state.mode === "qr") scanQRCode(time);
   if (frame && state.mode === "ar" && !state.placed) {
     const referenceSpace = renderer.xr.getReferenceSpace();
     const session = renderer.xr.getSession();

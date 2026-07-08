@@ -40,7 +40,7 @@ button {
 #camera-feed {
   display: none;
   object-fit: cover;
-  transform: scaleX(-1);
+  transform: none;
   background: #090b10;
 }
 
