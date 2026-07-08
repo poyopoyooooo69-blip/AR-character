@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#10131c" />
+    <meta
+      name="description"
+      content="QRコードから起動し、スマホのカメラ上で3Dキャラクターと遊べるWebARデモ"
+    />
+    <title>ポコのARひろば</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <video id="camera-feed" playsinline muted aria-hidden="true"></video>
+    <div id="stage" aria-label="3Dキャラクター表示エリア"></div>
+
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span>ポコのARひろば</span>
+      </div>
+      <button id="sound-button" class="icon-button" type="button" aria-label="音のオン・オフ">♪</button>
+    </header>
+
+    <main>
+      <section id="welcome-card" class="panel welcome-card">
+        <div class="mascot-mark" aria-hidden="true">P</div>
+        <p class="eyebrow">WEB AR EXPERIENCE</p>
+        <h1>ポコが<br />遊びにきたよ！</h1>
+        <p class="lead">カメラをかざして、目の前にポコを呼んでみよう。</p>
+        <button id="start-button" class="primary-button" type="button">
+          <span class="camera-icon" aria-hidden="true"></span>
+          ARをはじめる
+        </button>
+        <p class="privacy-note">カメラ映像は保存・送信されません</p>
+      </section>
+
+      <section id="placement-guide" class="guide hidden" aria-live="polite">
+        <div class="guide-icon">◎</div>
+        <p id="guide-text">スマホをゆっくり動かして<br />床や机を見つけてください</p>
+      </section>
+
+      <section id="interaction-guide" class="interaction-guide hidden" aria-live="polite">
+        <div class="speech-bubble" id="speech-bubble">ぼくをタップしてね！</div>
+        <div class="touch-hint"><span>☝</span> キャラクターをタップ</div>
+      </section>
+
+      <section id="error-card" class="panel error-card hidden" role="alert">
+        <h2>カメラを開始できませんでした</h2>
+        <p id="error-message">ブラウザのカメラ許可を確認して、もう一度お試しください。</p>
+        <button id="retry-button" class="secondary-button" type="button">もう一度試す</button>
+      </section>
+    </main>
+
+    <div id="flash" aria-hidden="true"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

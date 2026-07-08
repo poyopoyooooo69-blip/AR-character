@@ -1,0 +1,371 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  --ink: #f7f7fb;
+  --muted: #b7bbc9;
+  --accent: #ffcf33;
+  --accent-deep: #f0ae00;
+  --panel: rgba(20, 24, 35, 0.9);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 36%, #354056 0, #171b27 42%, #0b0d14 100%);
+  color: var(--ink);
+}
+
+button {
+  font: inherit;
+}
+
+#stage,
+#camera-feed {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#camera-feed {
+  display: none;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: #090b10;
+}
+
+body.camera-active #camera-feed {
+  display: block;
+}
+
+#stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.top-bar {
+  position: fixed;
+  z-index: 10;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(16px, env(safe-area-inset-top)) 18px 12px;
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 8px #000;
+}
+
+.brand-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(255, 207, 51, 0.2);
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(5, 8, 14, 0.5);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.panel {
+  position: fixed;
+  z-index: 8;
+  left: 50%;
+  width: min(88vw, 390px);
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 28px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(20px);
+}
+
+.welcome-card {
+  bottom: max(24px, env(safe-area-inset-bottom));
+  padding: 26px 24px 22px;
+  text-align: center;
+}
+
+.mascot-mark {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  display: grid;
+  width: 62px;
+  height: 62px;
+  transform: translateX(-50%) rotate(-5deg);
+  place-items: center;
+  border: 5px solid #fff;
+  border-radius: 22px 22px 28px 28px;
+  color: #171922;
+  background: var(--accent);
+  font-size: 28px;
+  font-weight: 1000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.eyebrow {
+  margin: 16px 0 8px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(30px, 9vw, 42px);
+  line-height: 1.18;
+  letter-spacing: -0.04em;
+}
+
+.lead {
+  margin: 13px auto 20px;
+  max-width: 290px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.primary-button,
+.secondary-button {
+  width: 100%;
+  min-height: 58px;
+  border: 0;
+  border-radius: 18px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.primary-button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  color: #17181d;
+  background: linear-gradient(135deg, #ffe36c, var(--accent));
+  box-shadow: 0 8px 24px rgba(255, 194, 0, 0.25);
+}
+
+.primary-button:active {
+  transform: translateY(2px);
+}
+
+.camera-icon {
+  width: 22px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+}
+
+.camera-icon::before {
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 3px auto;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  content: "";
+}
+
+.privacy-note {
+  margin: 13px 0 0;
+  color: #858a9a;
+  font-size: 10px;
+}
+
+.guide {
+  position: fixed;
+  z-index: 7;
+  top: 18%;
+  left: 50%;
+  width: 270px;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.guide-icon {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 12px;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  font-size: 42px;
+  line-height: 61px;
+  animation: pulse 1.5s infinite;
+}
+
+.guide p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.6;
+  text-shadow: 0 2px 8px #000;
+}
+
+.interaction-guide {
+  position: fixed;
+  z-index: 7;
+  inset: 0;
+  pointer-events: none;
+}
+
+.speech-bubble {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  min-width: 180px;
+  padding: 13px 18px;
+  transform: translateX(-50%);
+  border-radius: 18px;
+  color: #27220f;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.28);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.speech-bubble::after {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%) rotate(45deg);
+  background: #fff;
+  content: "";
+}
+
+.speech-bubble.pop {
+  transform: translateX(-50%) scale(1.12);
+}
+
+.touch-hint {
+  position: absolute;
+  bottom: max(28px, env(safe-area-inset-bottom));
+  left: 50%;
+  padding: 10px 16px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(5, 8, 14, 0.65);
+  font-size: 12px;
+  font-weight: 800;
+  backdrop-filter: blur(8px);
+}
+
+.touch-hint span {
+  display: inline-block;
+  margin-right: 4px;
+  animation: tap 1.2s infinite;
+}
+
+.error-card {
+  top: 50%;
+  padding: 28px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.error-card h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.error-card p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.secondary-button {
+  margin-top: 8px;
+  color: #18191e;
+  background: var(--accent);
+}
+
+#flash {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  background: rgba(255, 225, 93, 0.25);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#flash.active {
+  animation: flash 0.35s ease-out;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes tap {
+  0%,
+  100% {
+    transform: translateY(-3px);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+@keyframes flash {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (min-width: 700px) {
+  .welcome-card {
+    bottom: 7vh;
+  }
+}

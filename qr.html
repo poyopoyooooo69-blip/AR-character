@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AR起動用QRコード</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh; margin: 0; padding: 32px 18px;
+        display: grid; place-items: center; color: #171922; background: #f1f2f6;
+        font-family: "Yu Gothic", "Meiryo", sans-serif;
+      }
+      main {
+        width: min(100%, 520px); padding: 32px; border-radius: 28px; background: #fff;
+        box-shadow: 0 18px 60px rgba(25, 31, 47, .12); text-align: center;
+      }
+      h1 { margin: 0 0 8px; font-size: 26px; }
+      p { color: #686d79; font-size: 14px; line-height: 1.7; }
+      label { display: block; margin: 24px 0 7px; font-size: 12px; font-weight: 800; text-align: left; }
+      input {
+        width: 100%; min-height: 48px; padding: 0 14px; border: 2px solid #dfe1e8;
+        border-radius: 12px; font: inherit;
+      }
+      button {
+        width: 100%; min-height: 52px; margin-top: 12px; border: 0; border-radius: 14px;
+        color: #171922; background: #ffcf33; font: inherit; font-weight: 900; cursor: pointer;
+      }
+      #qr-wrap {
+        display: inline-grid; min-width: 276px; min-height: 276px; margin-top: 26px;
+        padding: 18px; place-items: center; border: 2px solid #171922; border-radius: 20px;
+      }
+      #qr { width: 240px; height: 240px; }
+      .caption { margin: 10px 0 0; color: #171922; font-size: 18px; font-weight: 900; }
+      @media print {
+        body { background: #fff; }
+        main { box-shadow: none; }
+        .controls, .note { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ポコのARひろば</h1>
+      <p class="note">公開後のURLを入力すると、配布・印刷用QRコードを作れます。</p>
+      <div class="controls">
+        <label for="url">ARページのURL（HTTPS）</label>
+        <input id="url" type="url" placeholder="https://example.com/ar-character/" />
+        <button id="make" type="button">QRコードを作成</button>
+      </div>
+      <div id="qr-wrap">
+        <canvas id="qr" width="240" height="240"></canvas>
+      </div>
+      <p class="caption">スマホで読み取ってね！</p>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+    <script>
+      const input = document.querySelector("#url");
+      const button = document.querySelector("#make");
+      const canvas = document.querySelector("#qr");
+      const initial = new URL("./", location.href).href.replace("qr.html", "");
+      input.value = location.protocol === "https:" ? initial : "https://example.com/ar-character/";
+
+      function draw() {
+        const url = input.value.trim();
+        if (!url) return;
+        if (!window.qrcode) {
+          alert("QRコード用ライブラリを読み込めませんでした。通信環境を確認してください。");
+          return;
+        }
+        const code = qrcode(0, "H");
+        code.addData(url);
+        code.make();
+        const count = code.getModuleCount();
+        const margin = 3;
+        const cells = count + margin * 2;
+        const size = canvas.width / cells;
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#171922";
+        for (let row = 0; row < count; row += 1) {
+          for (let column = 0; column < count; column += 1) {
+            if (!code.isDark(row, column)) continue;
+            const left = Math.round((column + margin) * size);
+            const top = Math.round((row + margin) * size);
+            const right = Math.round((column + margin + 1) * size);
+            const bottom = Math.round((row + margin + 1) * size);
+            context.fillRect(left, top, right - left, bottom - top);
+          }
+        }
+      }
+      button.addEventListener("click", draw);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") draw();
+      });
+      draw();
+    </script>
+  </body>
+</html>
