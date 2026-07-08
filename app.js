@@ -290,6 +290,102 @@ function createRouteGuide(waypoints) {
   return group;
 }
 
+function createCookingField(waypoints) {
+  const group = new THREE.Group();
+  group.name = "clean-cooking-field";
+
+  const materials = {
+    floor: new THREE.MeshStandardMaterial({ color: 0x6e8297, roughness: 0.86 }),
+    floorEdge: new THREE.MeshStandardMaterial({ color: 0x344b63, roughness: 0.72 }),
+    belt: new THREE.MeshStandardMaterial({ color: 0x8eb6ce, roughness: 0.58, metalness: 0.18 }),
+    beltEdge: new THREE.MeshStandardMaterial({ color: 0x3f6f91, roughness: 0.52, metalness: 0.28 }),
+    counter: new THREE.MeshStandardMaterial({ color: 0xb7d0df, roughness: 0.62 }),
+    counterTop: new THREE.MeshStandardMaterial({ color: 0xd9e7ee, roughness: 0.38, metalness: 0.16 }),
+    yellow: new THREE.MeshStandardMaterial({ color: 0xffc436, roughness: 0.48 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0xbfc8cc, roughness: 0.32, metalness: 0.72 }),
+    darkSteel: new THREE.MeshStandardMaterial({ color: 0x4d5a63, roughness: 0.38, metalness: 0.55 }),
+    wood: new THREE.MeshStandardMaterial({ color: 0xb8743c, roughness: 0.74 }),
+    red: new THREE.MeshStandardMaterial({ color: 0xd94b45, roughness: 0.66 }),
+    green: new THREE.MeshStandardMaterial({ color: 0x64ad55, roughness: 0.7 }),
+    orange: new THREE.MeshStandardMaterial({ color: 0xf2993a, roughness: 0.68 }),
+    cream: new THREE.MeshStandardMaterial({ color: 0xf1dfb5, roughness: 0.7 }),
+  };
+
+  const addMesh = (geometry, material, position, name, rotation = null) => {
+    const object = new THREE.Mesh(geometry, material);
+    object.name = name;
+    object.position.set(...position);
+    if (rotation) object.rotation.set(...rotation);
+    object.castShadow = true;
+    object.receiveShadow = true;
+    object.userData.characterPart = false;
+    group.add(object);
+    return object;
+  };
+
+  addMesh(new THREE.BoxGeometry(13.8, 0.28, 13.4), materials.floorEdge, [7.35, 0.38, 0.05], "field-base");
+  addMesh(new THREE.BoxGeometry(13.2, 0.18, 12.8), materials.floor, [7.35, 0.61, 0.05], "field-floor");
+
+  const leftCounterX = waypoints[0].x + 1.65;
+  const rightCounterX = waypoints[4].x - 1.65;
+  const laneLength = 11.8;
+  addMesh(new THREE.BoxGeometry(2.65, 0.72, laneLength), materials.beltEdge, [leftCounterX, 1.02, 0.05], "left-conveyor-base");
+  addMesh(new THREE.BoxGeometry(2.65, 0.72, laneLength), materials.beltEdge, [rightCounterX, 1.02, 0.05], "right-conveyor-base");
+  addMesh(new THREE.BoxGeometry(2.35, 0.22, laneLength - 0.35), materials.belt, [leftCounterX, 1.48, 0.05], "left-conveyor-belt");
+  addMesh(new THREE.BoxGeometry(2.35, 0.22, laneLength - 0.35), materials.belt, [rightCounterX, 1.48, 0.05], "right-conveyor-belt");
+  addMesh(
+    new THREE.BoxGeometry(rightCounterX - leftCounterX + 2.65, 0.72, 2.45),
+    materials.beltEdge,
+    [(leftCounterX + rightCounterX) / 2, 1.02, 5.28],
+    "turn-conveyor-base",
+  );
+  addMesh(
+    new THREE.BoxGeometry(rightCounterX - leftCounterX + 2.35, 0.22, 2.15),
+    materials.belt,
+    [(leftCounterX + rightCounterX) / 2, 1.48, 5.28],
+    "turn-conveyor-belt",
+  );
+
+  waypoints.forEach((waypoint, index) => {
+    const counterX = index < 4 ? leftCounterX : rightCounterX;
+    addMesh(new THREE.BoxGeometry(2.5, 3.85, 1.82), materials.counter, [counterX, 3.45, waypoint.z], `station-${index + 1}-body`);
+    addMesh(new THREE.BoxGeometry(2.72, 0.3, 2.02), materials.counterTop, [counterX, 5.53, waypoint.z], `station-${index + 1}-top`);
+    addMesh(new THREE.CylinderGeometry(0.3, 0.3, 0.14, 24), materials.yellow, [counterX, 5.76, waypoint.z - 0.72], `station-${index + 1}-marker`);
+  });
+
+  const leftX = leftCounterX;
+  const rightX = rightCounterX;
+  const propY = 5.82;
+
+  const meat = addMesh(new THREE.BoxGeometry(0.9, 0.22, 0.7), materials.red, [leftX, propY, waypoints[0].z], "prop-meat");
+  meat.rotation.y = 0.18;
+  addMesh(new THREE.CylinderGeometry(0.66, 0.62, 0.48, 24, 1, true), materials.steel, [leftX, propY + 0.18, waypoints[1].z], "prop-pot");
+  addMesh(new THREE.CylinderGeometry(0.54, 0.54, 0.08, 24), materials.darkSteel, [leftX, propY - 0.02, waypoints[1].z], "prop-pot-bottom");
+
+  [[-0.38, materials.red], [0, materials.green], [0.38, materials.orange]].forEach(([offset, material], itemIndex) => {
+    addMesh(new THREE.SphereGeometry(0.28, 14, 10), material, [leftX + offset, propY + 0.18, waypoints[2].z], `prop-ingredient-${itemIndex + 1}`);
+  });
+
+  addMesh(new THREE.BoxGeometry(1.45, 0.18, 1.0), materials.wood, [leftX, propY, waypoints[3].z], "prop-cutting-board");
+  addMesh(new THREE.BoxGeometry(0.15, 0.13, 1.05), materials.steel, [leftX + 0.2, propY + 0.16, waypoints[3].z], "prop-knife", [0, -0.42, 0]);
+
+  addMesh(new THREE.CylinderGeometry(0.7, 0.52, 0.42, 24), materials.steel, [rightX, propY + 0.12, waypoints[4].z], "prop-mixing-bowl");
+  addMesh(new THREE.CylinderGeometry(0.07, 0.07, 1.25, 12), materials.darkSteel, [rightX + 0.16, propY + 0.65, waypoints[4].z], "prop-whisk", [0.38, 0, -0.22]);
+
+  [-0.38, 0, 0.38].forEach((offset, itemIndex) => {
+    addMesh(new THREE.CylinderGeometry(0.2, 0.22, 0.72, 16), itemIndex === 1 ? materials.orange : materials.cream, [rightX + offset, propY + 0.36, waypoints[5].z], `prop-seasoning-${itemIndex + 1}`);
+  });
+
+  addMesh(new THREE.CylinderGeometry(0.78, 0.78, 0.14, 28), materials.cream, [rightX, propY, waypoints[6].z], "prop-plate");
+  addMesh(new THREE.CylinderGeometry(0.53, 0.48, 0.26, 24), materials.orange, [rightX, propY + 0.18, waypoints[6].z], "prop-finished-dish");
+  addMesh(new THREE.BoxGeometry(1.55, 0.18, 1.12), materials.beltEdge, [rightX, propY, waypoints[7].z], "prop-output-tray");
+  [[-0.42, materials.green], [0, materials.orange], [0.42, materials.red]].forEach(([offset, material], itemIndex) => {
+    addMesh(new THREE.SphereGeometry(0.23, 14, 10), material, [rightX + offset, propY + 0.28, waypoints[7].z], `prop-output-${itemIndex + 1}`);
+  });
+
+  return group;
+}
+
 function prepareRiggedCharacter(gltf) {
   const root = new THREE.Group();
   root.name = "rigged-cooking-scene";
@@ -299,6 +395,9 @@ function prepareRiggedCharacter(gltf) {
 
   const model = gltf.scene;
   const armature = model.getObjectByName("アーマチュア") || model;
+  model.children.forEach((object) => {
+    if (object !== armature && object.name !== "円柱.025") object.visible = false;
+  });
   const characterBox = new THREE.Box3().setFromObject(armature);
   const characterSize = characterBox.getSize(new THREE.Vector3());
   const characterCenter = characterBox.getCenter(new THREE.Vector3());
@@ -338,6 +437,9 @@ function prepareRiggedCharacter(gltf) {
     boneRest[name] = bone.quaternion.clone();
   });
 
+  const looseChefHat = model.getObjectByName("円柱.025");
+  if (looseChefHat) looseChefHat.visible = false;
+
   const ingredientMaterial = new THREE.MeshStandardMaterial({ color: 0xef4b3f, roughness: 0.72 });
   const carriedIngredient = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), ingredientMaterial);
   carriedIngredient.name = "carried-ingredient";
@@ -370,6 +472,7 @@ function prepareRiggedCharacter(gltf) {
     new THREE.Vector3(rightLaneX, routeY, -1.75),
     new THREE.Vector3(rightLaneX, routeY, -5.15),
   ];
+  model.add(createCookingField(waypoints));
   model.add(createRouteGuide(waypoints));
   const stations = [
     { label: "① お肉を取る", tools: [], toolChance: 0 },
